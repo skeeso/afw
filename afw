@@ -1,0 +1,89 @@
+#!/bin/bash
+# AFW (Arpa Firewall Wrapper) / v1.0 / 02.03.2016
+#  Copyright (C) 2016, Federick Joe P Fajardo <fjpfajardo@ph.ibm.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+# DECLARATIONS
+BARGS=0
+NARGS=3
+UTFC="\xE2\x88\x9A"
+UTFY="\xE2\x9D\xA4"
+UTFX="\xE2\x9C\x9D"
+X="\x1B[01;33m"
+Y="\x1B[0m"
+
+function disp_stat(){ printf "\x1B[01;34m[$UTFX]\x1B[0m $1"; }
+function disp_good(){ printf "\x1B[01;32m[$UTFC]\x1B[0m $1"; }
+function disp_errr(){ printf "\x1B[01;31m[$UTFX]\x1B[0m $1"; }
+function disp_noti(){ printf "\x1B[01;33m[$UTFY]\x1B[0m $1"; }
+
+function error_exit
+{
+        disp_errr "${PROGNAME}: ${1:-"Unknown Error"}\n" 1>&2
+        exit 1
+}
+
+main() {
+        printf "\033[1mARPA: AFW - `date` $\033[0m\n";
+	printf "Arpa Firewall Wrapper: https://github.com/skeeso/afw\n\n";
+        printf "\033[1m-a {zone} {IP}\033[0m	- Add IP or network in the zone.\n";
+        printf "\033[1m-x {zone} {IP}\033[0m	- Remove IP or network in the zone.\n";
+	printf "\033[1m-r . .\033[0m		- Load custom firewall configuration.\n";
+	printf "\033[1m-b . .\033[0m		- Generate zone backup.\n";
+}
+
+[[ $# -lt $NARGS ]] && main && exit $BARGS
+case $1 in
+        -a)
+        # ADD TO ZONE
+	echo "`ipset add \"$2\" \"$3\"`"
+	disp_good "IP: $3 has been added to $2 zone. Stamp: `date`\n" | tee -a /tmp/x.arpafw.log
+	exit 0
+        ;;
+        
+        -x)
+        # REMOVE TO ZONE
+	echo "`ipset del \"$2\" \"$3\"`"
+	disp_good "IP: $3 has been removed in $2 zone. Stamp: `date`\n" | tee -a /tmp/x.arpafw.log
+        exit 0
+        ;;
+
+        -r)
+        # RELOAD CONFIG
+        if grep -Fxq "Ubuntu" /etc/afw/arpafw.os; then
+        	cat /etc/afw/arpafw.rules > /etc/sysconfig/iptables
+        	iptables-restore < /etc/sysconfig/iptables
+        	iptables-save > /etc/sysconfig/iptables
+	else
+        	cat /etc/afw/arpafw.rules > /etc/default/iptables
+        	iptables-restore < /etc/default/iptables
+        	iptables-save > /etc/iptables/rules.v4
+	fi
+        disp_good "AFW completed. Stamp: `date`\n`iptables -L -n`\n\n" | tee -a /tmp/x.arpafw.log
+	exit 0
+        ;;
+
+	-b)
+	for i in red green blue
+	{
+        	ipset save $i -file /etc/afw/$i.zone
+	}
+	disp_good "IPset list has been generated. Stamp: `date`\n`ls -lt /etc/afw/`\n\n" | tee -a /tmp/x.arpafw.log 
+	exit 0
+	;;
+	
+esac
+exit 0
