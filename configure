@@ -188,6 +188,7 @@ if grep -Fxq "Ubuntu" /tmp/arpafw.os; then
 else
 	cat /tmp/arpafw.rules > /etc/default/iptables
 	iptables-restore < /etc/default/iptables
+	mkdir -p /etc/iptables;touch /etc/iptables/rules.v4
 	iptables-save > /etc/iptables/rules.v4
 fi
 	cp -fp `pwd`/afw /usr/local/bin/.
