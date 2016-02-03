@@ -1,0 +1,348 @@
+#!/bin/bash
+# AFW (Arpa Firewall Wrapper) / v1.0 / 02.03.2016
+#  Copyright (C) 2016, Federick Joe P Fajardo <fjpfajardo@ph.ibm.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+ZONE="http://ipverse.net/ipblocks/data/countries"
+MAXELEM="4294967295"
+HASHSIZE="65536"
+UTFC="\xE2\x88\x9A"
+UTFY="\xE2\x9D\xA4"
+UTFX="\xE2\x9C\x9D"
+X="\x1B[01;33m"
+Y="\x1B[0m"
+
+basepkgs="gcc curl wget bash crontab python"
+function disp_stat(){ printf "\x1B[01;34m[$UTFX]\x1B[0m $1"; }
+function disp_good(){ printf "\x1B[01;32m[$UTFC]\x1B[0m $1"; }
+function disp_errr(){ printf "\x1B[01;31m[$UTFX]\x1B[0m $1"; }
+function disp_noti(){ printf "\x1B[01;33m[$UTFY]\x1B[0m $1"; }
+
+function error_exit
+{
+	disp_errr "${PROGNAME}: ${1:-"Unknown Error"}\n" 1>&2
+	exit 1
+}
+
+function checkbinaries(){
+printf "Checking binaries...\n";
+   if [ -f "/etc/lsb-release" ]; then
+       	echo "Running OS: `cat /etc/lsb-release | grep DESC | cut -d= -f2 | tee /tmp/arpafw.os`"; 
+	apt-get -y update
+	for i in $basepkgs iptables ipset 
+	{ 
+		disp_stat "checking ${i}... "
+		if [ ! -x "$(which $i)" ]; then
+			printf "\033[1mnot found.\033[0m\n"; sleep 1
+			disp_stat "installing package... {\033[1m$i\033[0m}\n";
+    			apt-get install -y ${i}
+		if [ $? -eq 0 ]; then
+			disp_good "packages successfully installed."
+ 	    	else
+ 			disp_errr "packages failed to install!"
+  			exit 1
+ 		fi
+			else
+		echo "found."
+		fi
+	}
+
+elif [ -f "/etc/redhat-release" ]; then
+	echo "Running OS: `cat /etc/redhat-release | tee /tmp/arpafw.os`";
+	yum -y update
+	for i in $basepkgs iptables ipset
+        {
+                disp_stat "checking ${i}... "
+                if [ ! -x "$(which $i)" ]; then
+			printf "\033[1mnot found.\033[0m\n"; sleep 1
+                        disp_stat "installing package... {\033[1m$i\033[0m}\n";
+                        yum -y install ${i}
+                if [ $? -eq 0 ]; then
+                        disp_good "packages successfully installed."
+                else
+                        disp_errr "packages failed to install!"
+                        exit 1
+                fi
+                        else
+                echo "found."
+                fi
+        }
+else
+	disp_errr "non-supported operating system."
+fi
+}
+
+function initload(){
+clear
+printf "\033[1mARPA: Arpa Firewall - `date`\033[0m\n";
+printf "Operating System: `cat /tmp/arpafw.os` | ";echo "`uname -rp`";
+printf "\nIt is highly recommended that you only allow access to specific countries to limit the risk\n";
+printf "of being targeted by bots, harvesters, spiders, scanners, spamers etc. The default countries \n";
+printf "that are recommended are: US, CA, DE, AU, JP, HK, PH, SG, IL, UK\n\n";
+
+	# LOADING OF COUNTRIES
+	disp_noti "Would you like to load these countries [Y/n]: ";read ans_cctld;
+	if [[ "$ans_cctld" == "y" || "$ans_cctld" == "Y" ]]; then
+		echo "$ans_cctld" > /tmp/arpafw.set1
+		echo "us,ca,de,au,jp,hk,ph,sg,il,uk" > /tmp/arpafw.set2
+      elif [[ "$ans_cctld" == "n" || "$ans_cctld" == "N" ]]; then 
+		echo "$ans_cctld" > /tmp/arpafw.set1
+
+printf "$X[AC]$Y Ascension Island $X[CC]$Y Cocos Islands $X[GB]$Y Great Britain $X[KH]$Y Cambodia $X[NA]$Y Namibia $X[SU]$Y Russia\n";
+printf "$X[AD]$Y Andorra $X[CD]$Y Congo $X[GE]$Y Georgia $X[KR]$Y Korea $X[NC]$Y New Caledonia $X[SV]$Y El Salvador\n";
+printf "$X[AE]$Y United Arab Emirates $X[CF]$Y Central Africa $X[GF]$Y French Guiana $X[KW]$Y Kuwait $X[NF]$Y Norfolk Island $X[SZ]$Y Swaziland\n";
+printf "$X[AF]$Y Afghanistan $X[CG]$Y Congo $X[GG]$Y Guernsey $X[KY]$Y Cayman $X[NI]$Y Nicaragua $X[TD]$Y Tchad\n";
+printf "$X[AI]$Y Anguilla $X[CH]$Y Switzerland $X[GH]$Y Ghana $X[KZ]$Y Kazahstan $X[NL]$Y Netherlands $X[TH]$Y Thailand\n";
+printf "$X[AL]$Y Albania $X[CK]$Y Cook Islands $X[GI]$Y Gibraltar $X[LB]$Y Lebanon $X[NO]$Y Norway $X[TJ]$Y Tajikistan\n";
+printf "$X[AM]$Y Armenia $X[CL]$Y Chile $X[GL]$Y Greenland $X[LC]$Y Saint Lucia $X[NP]$Y Nepal $X[TM]$Y Turkmenistan\n";
+printf "$X[AN]$Y Antilles $X[CM]$Y Cameroon $X[GM]$Y Gambia $X[LI]$Y Liechtenstein $X[NU]$Y Niue $X[TN]$Y Tunisia\n";
+printf "$X[AP]$Y Asia Pacific $X[CN]$Y China $X[GN]$Y Guinea $X[LK]$Y Sri Lanka $X[NZ]$Y New Zealand $X[TP]$Y East Timor\n";
+printf "$X[AQ]$Y Antarctica $X[CO]$Y Colombia $X[GR]$Y Greece $X[LR]$Y Liberia $X[OM]$Y Oman $X[TR]$Y Turkey\n";
+printf "$X[AR]$Y Argentina $X[CR]$Y Costa Rica $X[GT]$Y Guatemala $X[LT]$Y Lithuania $X[PA]$Y Panama $X[TV]$Y Tuvalu\n";
+printf "$X[AS]$Y American Samoa $X[CU]$Y Cuba $X[GU]$Y Guam $X[LU]$Y Luxembourg $X[PE]$Y Peru $X[TW]$Y Taiwan\n";
+printf "$X[AT]$Y Austria $X[CX]$Y Christmas Island $X[HK]$Y Hong Kong $X[LV]$Y Latvia $X[PG]$Y Papua New Guinea $X[TZ]$Y Tanzania\n";
+printf "$X[AU]$Y Australia $X[CY]$Y Cyprus $X[HM]$Y Heard Island $X[LY]$Y Libya $X[PH]$Y Philippines $X[UA]$Y Ukraine\n";
+printf "$X[AZ]$Y Azerbaijan $X[CZ]$Y Czech Republic $X[HN]$Y Honduras $X[MC]$Y Monaco $X[PK]$Y Pakistan $X[UG]$Y Uganda\n";
+printf "$X[BA]$Y Bosnia and Herzegovina $X[DE]$Y Germany $X[HR]$Y Croatia $X[MD]$Y Moldova $X[QA]$Y Qatar $X[UK]$Y United Kingdom\n";
+printf "$X[BB]$Y Barbados $X[DJ]$Y Djibouti $X[HU]$Y Hungary $X[MG]$Y Madagascar $X[RE]$Y Reunion Island $X[US]$Y United States\n";
+printf "$X[BE]$Y Belgium $X[DK]$Y Denmark $X[ID]$Y Indonesia $X[MH]$Y Marshall Islands $X[RO]$Y Romania $X[UY]$Y Uruguay\n";
+printf "$X[BF]$Y Burkina Faso $X[DO]$Y Dominican Republic $X[IE]$Y Ireland $X[MK]$Y Macedonia $X[RU]$Y Russia $X[UZ]$Y Uzbekistan\n";
+printf "$X[BG]$Y Bulgaria $X[DZ]$Y Algeria $X[IL]$Y Israel $X[MM]$Y Myanmar $X[RW]$Y Rwanda $X[VE]$Y Venezuela\n";
+printf "$X[BH]$Y Bahrain $X[EC]$Y Equador $X[IM]$Y Isle of Man $X[MN]$Y Mongolia $X[SA]$Y Saudi Arabia $X[VG]$Y British Virgin Islands\n";
+printf "$X[BI]$Y Burundi $X[EE]$Y Estonia $X[IN]$Y India $X[MO]$Y Macau $X[SB]$Y Solomon Islands $X[VI]$Y US Virgin Islands\n";
+printf "$X[BM]$Y Bermuda $X[EG]$Y Egypt $X[IR]$Y Iran $X[MQ]$Y Martinique $X[SE]$Y Sweden $X[VU]$Y Vanuatu\n";
+printf "$X[BN]$Y Brunei Darussalam $X[ES]$Y Spain $X[IS]$Y Iceland $X[MR]$Y Mauritania $X[SG]$Y Singapore $X[WS]$Y Samoa\n";
+printf "$X[BO]$Y Bolivia $X[FI]$Y Finland $X[IT]$Y Italy $X[MS]$Y Montserrat $X[SH]$Y Saint Helena $X[YT]$Y Mayotte\n";
+printf "$X[BR]$Y Brazil $X[FJ]$Y Fiji $X[JE]$Y Jersey $X[MT]$Y Malta $X[SI]$Y Slovenia $X[YU]$Y Yugoslavia\n";
+printf "$X[BT]$Y Bhutan  $X[FK]$Y Falkland Islands $X[JO]$Y Jordan $X[MU]$Y Mauritius $X[SK]$Y Slovakia $X[ZA]$Y South Africa\n";
+printf "$X[BY]$Y Belarus $X[FM]$Y Micronesia $X[JP]$Y Japan $X[MX]$Y Mexico $X[SM]$Y San Marino $X[ZM]$Y Zambia\n";
+printf "$X[BZ]$Y Belize $X[FR]$Y France $X[KE]$Y Kenya $X[MY]$Y Malaysia $X[SN]$Y Senegal\n";
+printf "$X[CA]$Y Canada $X[FO]$Y Faroe Islands $X[KG]$Y Kyrgyzstan $X[MW]$Y Malawi $X[SO]$Y Somalia\n\n";
+
+	disp_noti "Enter the countries that you want to allow (comma separated) Eg: af,kr,cn,pk,ru: ";read ans_custom;
+	if [[ -z "$ans_custom" ]];then
+		echo "null" > /tmp/arpafw.set2
+		error_exit "$LINENO: An error has occurred or null."
+      else
+                echo "$ans_custom" > /tmp/arpafw.set2
+        fi
+else
+	error_exit "$LINENO: An error has occurred or null."
+	echo "null" > /tmp/arpafw.set1
+fi
+}
+
+function portload(){
+	printf "\nAFW will only allow access to your internal network. Access to your public IP must be defined by each port.\n\n";
+	disp_noti "Enter the ports that you need to allow access. E.g: 80,443,8080: ";read ans_ports;
+        if [[ -z $ans_ports ]];then
+                echo "null" > /tmp/arpafw.set3
+                error_exit "$LINENO: An error has occurred or null."
+      else
+                echo "$ans_ports" > /tmp/arpafw.set3
+        fi
+}
+
+function blocklist(){
+	printf "\nAFW can automatically blocklist IP addresses or networks that are known to be malicious.\n\n";
+        disp_noti "Enable blocklist option [Y/n]: ";read ans_blocklist;
+        if [[ "$ans_blocklist" == "y" || "$ans_blocklist" == "Y" ]]; then
+                echo "$ans_blocklist" > /tmp/arpafw.set4
+      elif [[ "$ans_blocklist" == "n" || "$ans_blocklist" == "N" ]]; then
+		echo "$ans_blocklist" > /tmp/arpafw.set4
+      else
+		echo "null" > /tmp/arpafw.set4
+		error_exit "$LINENO: An error has occurred or null."
+        fi
+}
+
+function installfwd(){
+disp_noti "Installing firewall...\n";
+mkdir -p /etc/afw
+cp -f /tmp/arpafw.os /etc/afw/.
+cp -f /tmp/arpafw.rules /etc/afw/.
+cp -f `pwd`/blocklist.conf /etc/afw/.
+
+for i in red green blue
+{
+	ipset save $i -file /etc/afw/$i.zone
+}
+
+if grep -Fxq "Ubuntu" /tmp/arpafw.os; then
+	cat /tmp/arpafw.rules > /etc/sysconfig/iptables
+	iptables-restore < /etc/sysconfig/iptables
+	iptables-save > /etc/sysconfig/iptables
+else
+	cat /tmp/arpafw.rules > /etc/default/iptables
+	iptables-restore < /etc/default/iptables
+	iptables-save > /etc/iptables/rules.v4
+fi
+	cp -fp `pwd`/afw /usr/local/bin/.
+	if [[ -f /usr/share/man/man8/afw.8.gz ]]; then
+		disp_good "Man page found.\n";
+	else
+		disp_good "Installing man pages...\n";
+		cp -fp `pwd`/afw.1 /usr/share/man/man8/afw.8
+		gzip /usr/share/man/man8/afw.8
+	fi
+	rm -f /tmp/arpa* /tmp/*.zone
+	disp_good "AFW completed.\n\n";
+}
+
+function configload(){
+        printf "\nNow we are ready to finalize the configuration and installation. Don't worry if you need\n";
+	printf "to make any changes. You will be given the option to customize the configuration later.\n";
+        printf "Remember that all existing rules or chains will be flushed when you choose \"y\".\n\n";
+	disp_noti "Do you want to continue the [Y/n]: ";read ans_config;
+        if [[ "$ans_config" == "y" || "$ans_config" == "Y" ]]; then
+                echo "$ans_config" > /tmp/arpafw.set5
+
+		#CONFIGURE AND INSTALL. BUILD THE CONFIG
+		cat /tmp/arpafw.set1 /tmp/arpafw.set2 /tmp/arpafw.set3 /tmp/arpafw.set4 /tmp/arpafw.set5 > /tmp/arpafw.set
+		# START THE BUILD
+		echo "ZONE=\"$ZONE\"" > /tmp/arpafw.conf
+		echo "HASHSIZE=\"$HASHSIZE\"" >> /tmp/arpafw.conf
+		echo "MAXELEM=\"$MAXELEM\"" >> /tmp/arpafw.conf
+
+			# FETCH THE ZONES
+			if [[ -f "/tmp/*.zone" ]]; then
+				rm -f /tmp/*.zone
+			fi
+			for c in `sed -n '2p' /tmp/arpafw.set | sed 's/,/ /g'`
+			{
+				disp_noti "Fetching $c...\n"
+				curl -q "$ZONE/$c.zone" --connect-timeout 10 --max-time 10 -o /tmp/$c.zone > /dev/null 2>&1
+		 	}
+				disp_good "Fetching completed.\n";
+			
+			# MERGE AND CLEANUP
+                        if [[ -f "/tmp/arpafw.net" ]]; then
+                                rm /tmp/arpafw.net
+                        else
+                                touch /tmp/arpafw.net
+                        fi
+
+			for d in `sed -n '2p' /tmp/arpafw.set | sed 's/,/ /g'`
+			{
+				cat /tmp/$d.zone | grep -v "#" | grep -v "<" >> /tmp/arpafw.net
+			}
+				disp_good "`wc /tmp/arpafw.net | sed 's/^.//'`\n";	
+
+			# CREATE FW TEMPLATE
+			disp_noti "Creating firewall template...\n";
+			echo "*filter" > /tmp/arpafw.rules
+			echo ":INPUT ACCEPT [0:0]" >> /tmp/arpafw.rules
+			echo ":FORWARD ACCEPT [0:0]" >> /tmp/arpafw.rules
+			echo ":OUTPUT ACCEPT [0:0]" >> /tmp/arpafw.rules
+			echo ":AFW -" >> /tmp/arpafw.rules
+			
+			echo "# All traffic to AFW chain" >> /tmp/arpafw.rules
+			echo "-A INPUT -j AFW" >> /tmp/arpafw.rules
+			echo "# Accecpt local" >> /tmp/arpafw.rules
+			echo "-A AFW -i lo -j ACCEPT" >> /tmp/arpafw.rules
+			echo "# Accept and established" >> /tmp/arpafw.rules
+			echo "-A AFW -m state --state RELATED,ESTABLISHED -j ACCEPT" >> /tmp/arpafw.rules
+			
+			echo "# ICMP echo request/reply permitted" >> /tmp/arpafw.rules
+			echo "-A AFW -p icmp -m icmp --icmp-type 0 -j ACCEPT" >> /tmp/arpafw.rules
+			echo "-A AFW -p icmp -m icmp --icmp-type 8 -j ACCEPT" >> /tmp/arpafw.rules
+			
+			echo "# Allow specific IP to access SSH" >> /tmp/arpafw.rules
+			echo "-A AFW -m set --match-set blue src -p tcp -m multiport --dports 22,`sed -n '3p' /tmp/arpafw.set` -j ACCEPT" >> /tmp/arpafw.rules
+			echo "# Whitelist these ipset's and permit them to connect on port" >> /tmp/arpafw.rules
+			echo "-A AFW -m set --match-set green src -p tcp -m multiport --dports `sed -n '3p' /tmp/arpafw.set` -j ACCEPT" >> /tmp/arpafw.rules
+			
+			echo "# log iptables denied calls" >> /tmp/arpafw.rules
+			echo "-A AFW -m limit --limit 5/min -j LOG --log-prefix \"iptables denied: \" --log-level 7" >> /tmp/arpafw.rules
+			echo "# Rejects all remaining connections with port-unreachable errors." >> /tmp/arpafw.rules
+			echo "-A AFW -p tcp -m tcp --tcp-flags SYN,RST,ACK SYN -j REJECT --reject-with icmp-port-unreachable" >> /tmp/arpafw.rules
+			echo "-A AFW -m set --match-set red src -j DROP" >> /tmp/arpafw.rules
+			echo "#Reject all udp traffic" >> /tmp/arpafw.rules
+			echo "-A AFW -p udp -j REJECT --reject-with icmp-port-unreachable" >> /tmp/arpafw.rules
+			echo "COMMIT" >> /tmp/arpafw.rules
+		
+			# GENERATE blocklIST
+			BLCK="`sed -n '4p' /tmp/arpafw.set`"
+			URLP=`pwd`/blocklist.conf
+			if [[ "$BLCK" == "y" || "$BLCK" == "Y" ]]; then
+			disp_noti "Generating blocklist ...\n";
+			for i in `cat $URLP | grep -v "#"`
+			{
+				curl "$i" --connect-timeout 10 --max-time 10 | tee -a /tmp/arpafw.zone > /dev/null 2>&1
+			}
+				cat /tmp/arpafw.zone | grep -v "#" | grep -v "<" | grep -v ":" | cut -d"," -f1 | cut -d";" -f1 | sed '/^$/d' > /tmp/arpafw.blk
+				cp -f /tmp/arpafw.blk /tmp/arpafw.blk2
+				grep -oE '((1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])\.){3}(1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])' /tmp/arpafw.blk2 > /tmp/arpafw.blk
+				disp_good "blocklist completed.\n";
+				disp_good "`wc /tmp/arpafw.blk | sed 's/^.//'`\n";
+			fi
+
+			# GENERATE ZONES
+			iptables -F
+			iptables -X
+			ipset -X
+			disp_noti "Configuring BLUE zone...\n";
+			ifconfig -a | grep "inet addr" | cut -d":" -f2 | cut -d" " -f1 > /tmp/arpafw.blue
+			ipset create "blue" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"			
+			ipset flush "blue"
+			for IP in $( cat "/tmp/arpafw.blue" )
+                        {
+                                ipset add blue $IP -exist
+                        }
+                        disp_good "Blue zone completed.\n";
+
+			disp_noti "Configuring GREEN zone...\n";
+			ipset create "green" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"
+			ipset flush "green"
+			for IP in $( cat "/tmp/arpafw.net" )
+			{
+				ipset add green $IP -exist
+			}
+			disp_good "Green zone completed.\n";
+
+			# GENERATE SET FOR RED
+			if [[ "$BLCK" == "y" || "$BLCK" == "Y" ]]; then
+                        	disp_noti "Configuring RED zone...\n";
+                        	ipset create "red" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"
+                        	ipset flush "red"
+                        	for IP in $( cat "/tmp/arpafw.blk" )
+                        	{
+                                	ipset add red $IP -exist
+                        	}
+			else
+				ipset create "red" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"
+                        	ipset flush "red"
+			fi
+			disp_good "Red zone completed.\n";
+			
+      elif [[ "$ans_config" == "n" || "$ans_config" == "N" ]]; then
+                echo "$ans_config" > /tmp/arpafw.set5
+		exit 0
+      else
+                echo "null" > /tmp/arpafw.set5
+                error_exit "$LINENO: An error has occurred or null."
+        fi
+}
+
+# EXECUTE
+checkbinaries
+initload
+portload
+blocklist
+configload
+installfwd
+
+exit 0
