@@ -282,7 +282,7 @@ function configload(){
 			disp_noti "Generating blocklist ...\n";
 			for i in `cat $URLP | grep -v "#"`
 			{
-				curl "$i" --connect-timeout 10 --max-time 10 | tee -a /tmp/arpafw.zone > /dev/null 2>&1
+				curl -k "$i" --connect-timeout 10 --max-time 10 | tee -a /tmp/arpafw.zone > /dev/null 2>&1
 			}
 				cat /tmp/arpafw.zone | grep -v "#" | grep -v "<" | grep -v ":" | cut -d"," -f1 | cut -d";" -f1 | sed '/^$/d' > /tmp/arpafw.blk
 				cp -f /tmp/arpafw.blk /tmp/arpafw.blk2
