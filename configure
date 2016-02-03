@@ -178,7 +178,7 @@ cp -f `pwd`/blocklist.conf /etc/afw/.
 
 for i in red green blue
 {
-	ipset save $i /etc/afw/$i.zone
+	ipset save $i > /etc/afw/$i.zone
 }
 
 if grep -Fxq "Ubuntu" /tmp/arpafw.os; then
