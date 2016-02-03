@@ -87,7 +87,7 @@ fi
 
 function initload(){
 clear
-printf "\033[1mARPA: Arpa Firewall - `date`\033[0m\n";
+printf "\033[1mARPA: (AFW) Arpa Firewall Wrapper - `date`\033[0m\n";
 printf "Operating System: `cat /tmp/arpafw.os` | ";echo "`uname -rp`";
 printf "\nIt is highly recommended that you only allow access to specific countries to limit the risk\n";
 printf "of being targeted by bots, harvesters, spiders, scanners, spamers etc. The default countries \n";
