@@ -1,0 +1,24 @@
+.\" Manpage for afw.
+.\" Contact fjpfajardo@ph.ibm.com to correct errors or typos.
+.TH afw 1 "03 Feb 2016" "1.0" "afw man page"
+.SH NAME
+afw \- Arpa Firewall Wrapper
+.SH DESCRIPTION
+AFW (Arpa Firewall Wrapper) is a script that helps you build a basic firewall configured with access from different zones. This is done by only allowing specific network of countries to access your server (trusted zone) for a certain ports, and gives you also the option to load the block listed IP addresses or networks as well. AFW does this by configuring three (3) default zones in ipset: green (white listed zone), blue (trusted zone), red (block listed zone). By default, only the IP addresses and networks listed in the trusted zone are allowed to access the server via SSH. For customization, you are free to configure the rules at /etc/afw/arpafw.rules.
+.SH OPTIONS
+afw [option] [zone] [ip]
+
+-a {zone} {IP}	- Add IP or network in the zone. E.g. afw -a blue 10.0.0.1 - will allow 10.0.0.1 access the server.
+
+-x {zone} {IP}	- Remove IP or network in the zone. E.g. afw -x red 10.0.0.1 - will deny 10.0.0.1 access the server.
+
+-r . . 		- Load custom firewall configuration. E.g. afw -r . . - will load custom firewall rules from the file /etc/afw/arpafw.rules.
+
+-b . .		- Generate zone backup. E.g. afw -b . . - will save ipset configuration in /etc/afw.
+
+.SH SEE ALSO
+configure(1), ipset(2), iptables(3)
+.SH BUGS
+No known bugs.
+.SH AUTHOR
+Federick Joe P Fajardo (fjpfajardo@ph.ibm.com)
