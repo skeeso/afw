@@ -8,3 +8,5 @@ AFW supports iptables and ipset from both Ubuntu and RHEL/CentOS packages:
 1. Clone the repository: https://github.com/skeeso/afw
 2. cd afw;chmod +x configure
 3. ./configure
+
+For options, run man afw
