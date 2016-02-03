@@ -185,14 +185,7 @@ if grep -Fxq "Ubuntu" /tmp/arpafw.os; then
 	cat /tmp/arpafw.rules > /etc/sysconfig/iptables
 	iptables-restore < /etc/sysconfig/iptables
 	iptables-save > /etc/sysconfig/iptables
-else
-	cat /tmp/arpafw.rules > /etc/default/iptables
-	iptables-restore < /etc/default/iptables
-	mkdir -p /etc/iptables;touch /etc/iptables/rules.v4
-	iptables-save > /etc/iptables/rules.v4
-fi
-	cp -fp `pwd`/afw /usr/local/bin/.
-	chmod +x /usr/local/bin/afw
+
 	if [[ -f /usr/share/man/man8/afw.8.gz ]]; then
 		disp_good "Man page found.\n";
 	else
@@ -200,6 +193,22 @@ fi
 		cp -fp `pwd`/afw.1 /usr/share/man/man8/afw.8
 		gzip /usr/share/man/man8/afw.8
 	fi
+else
+	cat /tmp/arpafw.rules > /etc/default/iptables
+	iptables-restore < /etc/default/iptables
+	mkdir -p /etc/iptables;touch /etc/iptables/rules.v4
+	iptables-save > /etc/iptables/rules.v4
+
+	if [[ -f /usr/share/man/man8/afw.8.gz ]]; then
+		disp_good "Man page found.\n";
+	else
+		disp_good "Installing man pages...\n";
+		cp -fp `pwd`/afw.1 /usr/share/man/man8/afw.8
+		gzip /usr/share/man/man8/afw.8
+	fi
+fi
+	cp -fp `pwd`/afw /usr/local/bin/.
+	chmod +x /usr/local/bin/afw
 	rm -f /tmp/arpafw.*;rm -f /tmp/*.zone
 	disp_good "AFW completed.\n\n";
 }
