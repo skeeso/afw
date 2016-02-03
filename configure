@@ -199,7 +199,7 @@ fi
 		cp -fp `pwd`/afw.1 /usr/share/man/man8/afw.8
 		gzip /usr/share/man/man8/afw.8
 	fi
-	rm -f /tmp/arpa* /tmp/*.zone
+	rm -f /tmp/arpafw.*;rm -f /tmp/*.zone
 	disp_good "AFW completed.\n\n";
 }
 
