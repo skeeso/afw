@@ -191,6 +191,7 @@ else
 	iptables-save > /etc/iptables/rules.v4
 fi
 	cp -fp `pwd`/afw /usr/local/bin/.
+	chmod +x /usr/local/bin/afw
 	if [[ -f /usr/share/man/man8/afw.8.gz ]]; then
 		disp_good "Man page found.\n";
 	else
