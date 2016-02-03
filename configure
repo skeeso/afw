@@ -263,7 +263,7 @@ function configload(){
 			echo "-A AFW -p icmp -m icmp --icmp-type 8 -j ACCEPT" >> /tmp/arpafw.rules
 			
 			echo "# Allow specific IP to access SSH" >> /tmp/arpafw.rules
-			echo "-A AFW -m set --match-set blue src -p tcp -m multiport --dports 22,`sed -n '3p' /tmp/arpafw.set` -j ACCEPT" >> /tmp/arpafw.rules
+			echo "-A AFW -m set --match-set blue src -p tcp -j ACCEPT" >> /tmp/arpafw.rules
 			echo "# Whitelist these ipset's and permit them to connect on port" >> /tmp/arpafw.rules
 			echo "-A AFW -m set --match-set green src -p tcp -m multiport --dports `sed -n '3p' /tmp/arpafw.set` -j ACCEPT" >> /tmp/arpafw.rules
 			
