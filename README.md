@@ -1,16 +1,20 @@
-# afw
-Arpa Firewall Wrapper
+# Arpa Firewall Wrapper (AFW)
 
-AFW  (Arpa  Firewall  Wrapper) is a script that helps you build a basic firewall configured with access from different zones. This is done by only allowing specific network of countries to access your server (trusted zone) for a certain ports, and gives you also the option to load the block listed IP addresses or  networks  as  well.  AFW  does  this by configuring three (3) default zones in ipset: green (white listed zone), blue (trusted zone), red (black listed zone). By default, only the IP addresses and networks listed in the trusted zone are allowed to access the server via SSH.
+**Arpa Firewall Wrapper (AFW)** is a script that helps you build a basic firewall with zone-based access controls. It works by allowing only specific country networks to access your server (trusted zones) on designated ports. AFW also provides the option to load blocklisted IP addresses or networks.
 
-The goal of AFW is to simplify the method of white and black listing by not allowing everyone to access your server, but only certain countries where you need to show content or to conduct business. This will limit attackers from non-allowed countries from scanning and harvesting information from the server itself.
+AFW achieves this by configuring three (3) default zones in **ipset**:
 
-The list of country specific networks are sourced from: http://ipverse.net/ipblocks/data/countries/
+* **Green** – whitelisted zone
+* **Blue** – trusted zone
+* **Red** – blocklisted zone
 
-AFW supports iptables and ipset from both Ubuntu and RHEL/CentOS packages:
+By default, only the IP addresses and networks in the trusted zone are permitted to access the server via SSH.
 
-1. Clone the repository: https://github.com/skeeso/afw
-2. cd afw;chmod +x configure
-3. ./configure
+The main goal of AFW is to simplify the process of whitelisting and blacklisting. Instead of leaving your server open to all, it restricts access only to countries where you intend to deliver content or conduct business. This reduces the risk of attackers from unauthorized countries scanning or harvesting information from your server.
 
-For options, run man afw
+The list of country-specific networks is sourced from:
+[https//www.ipdeny.com/ipblocks/data/countries](https://www.ipdeny.com/ipblocks/data/countries)
+
+AFW supports **iptables** and **ipset** on **Ubuntu** distributions.
+
+0xff, e@arpa.ph
