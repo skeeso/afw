@@ -1,359 +1,438 @@
-#!/bin/bash
-# AFW (Arpa Firewall Wrapper) / v1.0 / 02.03.2016
-#  Copyright (C) 2016, Federick Joe P Fajardo <fjpfajardo@ph.ibm.com>
-#
-#    This program is free software; you can redistribute it and/or modify
-#    it under the terms of the GNU General Public License as published by
-#    the Free Software Foundation; either version 2 of the License, or
-#    (at your option) any later version.
+#!/usr/bin/env bash
+# AFW (Arpa Firewall Wrapper) - Ubuntu 20.04 / 22.04 / 24.04
+# v2.1 (2025-10-02)
+# GPLv2+ — Original (C) 2016 Federick Joe P. Fajardo
+# Maintainer note: tested with iptables-nft backend + ipset on focal/jammy/noble.
 
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU General Public License for more details.
+set -euo pipefail
 
-#    You should have received a copy of the GNU General Public License
-#    along with this program; if not, write to the Free Software
-#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# =========================
+# Config (safe defaults)
+# =========================
+IPDENY_V4_BASE="https://www.ipdeny.com/ipblocks/data/countries"
+IPDENY_V6_BASE="https://www.ipdeny.com/ipv6/ipaddresses/blocks"
 
-ZONE="http://ipverse.net/ipblocks/data/countries"
-MAXELEM="4294967295"
+# ipset tuning
+MAXELEM="1048576"
 HASHSIZE="65536"
-UTFC="\xE2\x88\x9A"
-UTFY="\xE2\x9D\xA4"
-UTFX="\xE2\x9C\x9D"
-X="\x1B[01;33m"
-Y="\x1B[0m"
 
-basepkgs="gcc curl wget bash crontab python"
-function disp_stat(){ printf "\x1B[01;34m[$UTFX]\x1B[0m $1"; }
-function disp_good(){ printf "\x1B[01;32m[$UTFC]\x1B[0m $1"; }
-function disp_errr(){ printf "\x1B[01;31m[$UTFX]\x1B[0m $1"; }
-function disp_noti(){ printf "\x1B[01;33m[$UTFY]\x1B[0m $1"; }
+# Defaults (can be overridden via flags)
+DEFAULT_COUNTRIES="us,ca,de,au,jp,hk,ph,sg,il,uk"
+DEFAULT_PORTS="22"                 # <-- Only TCP 22 is allowed by default
+DEFAULT_BLOCKLIST="n"              # y/n
+DEFAULT_IPV6="n"                   # y/n
 
-function error_exit
-{
-	disp_errr "${PROGNAME}: ${1:-"Unknown Error"}\n" 1>&2
-	exit 1
+# UI cosmetics
+UTFC="\xE2\x88\x9A"  # check
+UTFY="\xE2\x9D\xA4"  # heart
+UTFX="\xE2\x9C\x9D"  # star
+X="\x1B[01;33m"; Y="\x1B[0m"
+
+# =========================
+# Helpers
+# =========================
+disp_stat(){ printf "\x1B[01;34m[$UTFX]\x1B[0m %b" "$1"; }
+disp_good(){ printf "\x1B[01;32m[$UTFC]\x1B[0m %b" "$1"; }
+disp_errr(){ printf "\x1B[01;31m[$UTFX]\x1B[0m %b" "$1"; }
+disp_noti(){ printf "\x1B[01;33m[$UTFY]\x1B[0m %b" "$1"; }
+
+error_exit(){ disp_errr "${1:-Unknown error}\n"; exit 1; }
+
+need_root(){
+  if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
+    error_exit "Run as root (use sudo)."
+  fi
 }
 
-function checkbinaries(){
-printf "Checking binaries...\n";
-   if [ -f "/etc/lsb-release" ]; then
-       	echo "Running OS: `cat /etc/lsb-release | grep DESC | cut -d= -f2 | tee /tmp/arpafw.os`"; 
-	apt-get -y update
-	for i in $basepkgs iptables ipset 
-	{ 
-		disp_stat "checking ${i}... "
-		if [ ! -x "$(which $i)" ]; then
-			printf "\033[1mnot found.\033[0m\n"; sleep 1
-			disp_stat "installing package... {\033[1m$i\033[0m}\n";
-    			apt-get install -y ${i}
-		if [ $? -eq 0 ]; then
-			disp_good "packages successfully installed."
- 	    	else
- 			disp_errr "packages failed to install!"
-  			exit 1
- 		fi
-			else
-		echo "found."
-		fi
-	}
+usage(){
+  cat <<EOF
+AFW - Distro-aware firewall bootstrap (Ubuntu 20.04/22.04/24.04)
 
-elif [ -f "/etc/redhat-release" ]; then
-	echo "Running OS: `cat /etc/redhat-release | tee /tmp/arpafw.os`";
-	yum -y update
-	for i in $basepkgs iptables ipset
-        {
-                disp_stat "checking ${i}... "
-                if [ ! -x "$(which $i)" ]; then
-			printf "\033[1mnot found.\033[0m\n"; sleep 1
-                        disp_stat "installing package... {\033[1m$i\033[0m}\n";
-                        yum -y install ${i}
-                if [ $? -eq 0 ]; then
-                        disp_good "packages successfully installed."
-                else
-                        disp_errr "packages failed to install!"
-                        exit 1
-                fi
-                        else
-                echo "found."
-                fi
-        }
-else
-	disp_errr "non-supported operating system."
-fi
+Usage: sudo bash $0 [options]
+
+Options:
+  --countries  <cc,cc,...>   CSV of ISO-3166 2-letter codes (default: ${DEFAULT_COUNTRIES})
+  --ports      <p1,p2,...>   CSV of TCP ports to allow from allowed countries (default: ${DEFAULT_PORTS})
+  --blocklist  <y|n>         Enable RED blocklist from ./blocklist.conf (default: ${DEFAULT_BLOCKLIST})
+  --ipv6       <y|n>         Also build IPv6 sets/rules using ipdeny v6 (default: ${DEFAULT_IPV6})
+  --yes                      Non-interactive (accept defaults or provided flags)
+  --help                     Show this help
+
+Examples:
+  sudo bash $0 --countries ph,us,gb,au --ports 22,80,443 --blocklist y --ipv6 n --yes
+  sudo bash $0  (interactive; defaults to allow TCP 22 only)
+EOF
 }
 
-function initload(){
-clear
-printf "\033[1mARPA: (AFW) Arpa Firewall Wrapper - `date`\033[0m\n";
-printf "Operating System: `cat /tmp/arpafw.os` | ";echo "`uname -rp`";
-printf "\nIt is highly recommended that you only allow access to specific countries to limit the risk\n";
-printf "of being targeted by bots, harvesters, spiders, scanners, spamers etc. The default countries \n";
-printf "that are recommended are: US, CA, DE, AU, JP, HK, PH, SG, IL, UK\n\n";
+# =========================
+# Parse flags
+# =========================
+COUNTRIES="${DEFAULT_COUNTRIES}"
+PORTS="${DEFAULT_PORTS}"
+BLOCKLIST="${DEFAULT_BLOCKLIST}"
+IPV6_OPT="${DEFAULT_IPV6}"
+ASSUME_Y="n"
 
-	# LOADING OF COUNTRIES
-	disp_noti "Would you like to load these countries [Y/n]: ";read ans_cctld;
-	if [[ "$ans_cctld" == "y" || "$ans_cctld" == "Y" ]]; then
-		echo "$ans_cctld" > /tmp/arpafw.set1
-		echo "us,ca,de,au,jp,hk,ph,sg,il,uk" > /tmp/arpafw.set2
-      elif [[ "$ans_cctld" == "n" || "$ans_cctld" == "N" ]]; then 
-		echo "$ans_cctld" > /tmp/arpafw.set1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --countries) COUNTRIES="${2,,}"; shift 2;;
+    --ports) PORTS="${2}"; shift 2;;
+    --blocklist) BLOCKLIST="${2}"; shift 2;;
+    --ipv6) IPV6_OPT="${2}"; shift 2;;
+    --yes) ASSUME_Y="y"; shift;;
+    --help|-h) usage; exit 0;;
+    *) error_exit "Unknown option: $1 (use --help)";;
+  esac
+done
 
-printf "$X[AC]$Y Ascension Island $X[CC]$Y Cocos Islands $X[GB]$Y Great Britain $X[KH]$Y Cambodia $X[NA]$Y Namibia $X[SU]$Y Russia\n";
-printf "$X[AD]$Y Andorra $X[CD]$Y Congo $X[GE]$Y Georgia $X[KR]$Y Korea $X[NC]$Y New Caledonia $X[SV]$Y El Salvador\n";
-printf "$X[AE]$Y United Arab Emirates $X[CF]$Y Central Africa $X[GF]$Y French Guiana $X[KW]$Y Kuwait $X[NF]$Y Norfolk Island $X[SZ]$Y Swaziland\n";
-printf "$X[AF]$Y Afghanistan $X[CG]$Y Congo $X[GG]$Y Guernsey $X[KY]$Y Cayman $X[NI]$Y Nicaragua $X[TD]$Y Tchad\n";
-printf "$X[AI]$Y Anguilla $X[CH]$Y Switzerland $X[GH]$Y Ghana $X[KZ]$Y Kazahstan $X[NL]$Y Netherlands $X[TH]$Y Thailand\n";
-printf "$X[AL]$Y Albania $X[CK]$Y Cook Islands $X[GI]$Y Gibraltar $X[LB]$Y Lebanon $X[NO]$Y Norway $X[TJ]$Y Tajikistan\n";
-printf "$X[AM]$Y Armenia $X[CL]$Y Chile $X[GL]$Y Greenland $X[LC]$Y Saint Lucia $X[NP]$Y Nepal $X[TM]$Y Turkmenistan\n";
-printf "$X[AN]$Y Antilles $X[CM]$Y Cameroon $X[GM]$Y Gambia $X[LI]$Y Liechtenstein $X[NU]$Y Niue $X[TN]$Y Tunisia\n";
-printf "$X[AP]$Y Asia Pacific $X[CN]$Y China $X[GN]$Y Guinea $X[LK]$Y Sri Lanka $X[NZ]$Y New Zealand $X[TP]$Y East Timor\n";
-printf "$X[AQ]$Y Antarctica $X[CO]$Y Colombia $X[GR]$Y Greece $X[LR]$Y Liberia $X[OM]$Y Oman $X[TR]$Y Turkey\n";
-printf "$X[AR]$Y Argentina $X[CR]$Y Costa Rica $X[GT]$Y Guatemala $X[LT]$Y Lithuania $X[PA]$Y Panama $X[TV]$Y Tuvalu\n";
-printf "$X[AS]$Y American Samoa $X[CU]$Y Cuba $X[GU]$Y Guam $X[LU]$Y Luxembourg $X[PE]$Y Peru $X[TW]$Y Taiwan\n";
-printf "$X[AT]$Y Austria $X[CX]$Y Christmas Island $X[HK]$Y Hong Kong $X[LV]$Y Latvia $X[PG]$Y Papua New Guinea $X[TZ]$Y Tanzania\n";
-printf "$X[AU]$Y Australia $X[CY]$Y Cyprus $X[HM]$Y Heard Island $X[LY]$Y Libya $X[PH]$Y Philippines $X[UA]$Y Ukraine\n";
-printf "$X[AZ]$Y Azerbaijan $X[CZ]$Y Czech Republic $X[HN]$Y Honduras $X[MC]$Y Monaco $X[PK]$Y Pakistan $X[UG]$Y Uganda\n";
-printf "$X[BA]$Y Bosnia and Herzegovina $X[DE]$Y Germany $X[HR]$Y Croatia $X[MD]$Y Moldova $X[QA]$Y Qatar $X[UK]$Y United Kingdom\n";
-printf "$X[BB]$Y Barbados $X[DJ]$Y Djibouti $X[HU]$Y Hungary $X[MG]$Y Madagascar $X[RE]$Y Reunion Island $X[US]$Y United States\n";
-printf "$X[BE]$Y Belgium $X[DK]$Y Denmark $X[ID]$Y Indonesia $X[MH]$Y Marshall Islands $X[RO]$Y Romania $X[UY]$Y Uruguay\n";
-printf "$X[BF]$Y Burkina Faso $X[DO]$Y Dominican Republic $X[IE]$Y Ireland $X[MK]$Y Macedonia $X[RU]$Y Russia $X[UZ]$Y Uzbekistan\n";
-printf "$X[BG]$Y Bulgaria $X[DZ]$Y Algeria $X[IL]$Y Israel $X[MM]$Y Myanmar $X[RW]$Y Rwanda $X[VE]$Y Venezuela\n";
-printf "$X[BH]$Y Bahrain $X[EC]$Y Equador $X[IM]$Y Isle of Man $X[MN]$Y Mongolia $X[SA]$Y Saudi Arabia $X[VG]$Y British Virgin Islands\n";
-printf "$X[BI]$Y Burundi $X[EE]$Y Estonia $X[IN]$Y India $X[MO]$Y Macau $X[SB]$Y Solomon Islands $X[VI]$Y US Virgin Islands\n";
-printf "$X[BM]$Y Bermuda $X[EG]$Y Egypt $X[IR]$Y Iran $X[MQ]$Y Martinique $X[SE]$Y Sweden $X[VU]$Y Vanuatu\n";
-printf "$X[BN]$Y Brunei Darussalam $X[ES]$Y Spain $X[IS]$Y Iceland $X[MR]$Y Mauritania $X[SG]$Y Singapore $X[WS]$Y Samoa\n";
-printf "$X[BO]$Y Bolivia $X[FI]$Y Finland $X[IT]$Y Italy $X[MS]$Y Montserrat $X[SH]$Y Saint Helena $X[YT]$Y Mayotte\n";
-printf "$X[BR]$Y Brazil $X[FJ]$Y Fiji $X[JE]$Y Jersey $X[MT]$Y Malta $X[SI]$Y Slovenia $X[YU]$Y Yugoslavia\n";
-printf "$X[BT]$Y Bhutan  $X[FK]$Y Falkland Islands $X[JO]$Y Jordan $X[MU]$Y Mauritius $X[SK]$Y Slovakia $X[ZA]$Y South Africa\n";
-printf "$X[BY]$Y Belarus $X[FM]$Y Micronesia $X[JP]$Y Japan $X[MX]$Y Mexico $X[SM]$Y San Marino $X[ZM]$Y Zambia\n";
-printf "$X[BZ]$Y Belize $X[FR]$Y France $X[KE]$Y Kenya $X[MY]$Y Malaysia $X[SN]$Y Senegal\n";
-printf "$X[CA]$Y Canada $X[FO]$Y Faroe Islands $X[KG]$Y Kyrgyzstan $X[MW]$Y Malawi $X[SO]$Y Somalia\n\n";
+# =========================
+# OS detection
+# =========================
+detect_os(){
+  local id like ver codename
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    id="${ID:-}"; like="${ID_LIKE:-}"; ver="${VERSION_ID:-}"; codename="${VERSION_CODENAME:-}"
+  else
+    error_exit "Cannot read /etc/os-release; unsupported system."
+  fi
 
-	disp_noti "Enter the countries that you want to allow (comma separated) Eg: af,kr,cn,pk,ru: ";read ans_custom;
-	if [[ -z "$ans_custom" ]];then
-		echo "null" > /tmp/arpafw.set2
-		error_exit "$LINENO: An error has occurred or null."
+  if [[ "${id}" != "ubuntu" && "${like:-}" != *"ubuntu"* ]]; then
+    error_exit "Only Ubuntu is supported (detected: ID=${id}, LIKE=${like})."
+  fi
+
+  case "${ver}" in
+    "20.04"|"22.04"|"24.04") : ;;
+    *) disp_noti "Ubuntu ${ver} detected — not one of 20.04/22.04/24.04, proceeding but YMMV.\n";;
+  esac
+
+  echo "Ubuntu ${ver} ${codename}" > /tmp/afw.os
+}
+
+# =========================
+# Package install (all supported Ubuntu)
+# =========================
+install_pkgs(){
+  disp_stat "Checking/Installing required packages...\n"
+  export DEBIAN_FRONTEND=noninteractive
+
+  # iptables-nft is the default backend on modern Ubuntu; ensure persistence + ipset installed
+  local pkgs=(
+    curl wget cron
+    iptables ipset netfilter-persistent iptables-persistent
+  )
+
+  # Update + accept Release info changes automatically (common on PPAs)
+  apt-get update -y --allow-releaseinfo-change || apt-get update -y
+
+  for p in "${pkgs[@]}"; do
+    if ! dpkg -s "$p" >/dev/null 2>&1; then
+      disp_stat "Installing ${p}...\n"
+      apt-get install -y "$p"
+    fi
+  done
+
+  # Ensure services are available
+  systemctl enable netfilter-persistent >/dev/null 2>&1 || true
+  disp_good "Packages are ready.\n"
+}
+
+# =========================
+# Interactive prompts (optional)
+# =========================
+maybe_prompt(){
+  if [[ "${ASSUME_Y}" == "y" ]]; then
+    echo "${COUNTRIES}" > /tmp/afw.countries
+    echo "${PORTS}"     > /tmp/afw.ports
+    echo "${BLOCKLIST}" > /tmp/afw.blocklist
+    echo "${IPV6_OPT}"  > /tmp/afw.ipv6
+    return
+  fi
+
+  clear
+  printf "\033[1mARPA: (AFW) Arpa Firewall Wrapper - %s\033[0m\n" "$(date)"
+  printf "Operating System: %s | %s\n\n" "$(cat /tmp/afw.os)" "$(uname -srp)"
+
+  echo "Recommended allowlist example: ${DEFAULT_COUNTRIES}"
+  read -r -p "$(printf "${X}Enter country codes (CSV) [default: %s]${Y}: " "${COUNTRIES}")" _ans || true
+  if [[ -n "${_ans:-}" ]]; then COUNTRIES="${_ans,,}"; fi
+  echo "${COUNTRIES}" > /tmp/afw.countries
+
+  echo
+  echo "AFW will only allow access on the ports you specify from those countries."
+  read -r -p "$(printf "${X}Enter allowed TCP ports (CSV) [default: %s]${Y}: " "${PORTS}")" _p || true
+  if [[ -n "${_p:-}" ]]; then PORTS="${_p}"; fi
+  echo "${PORTS}" > /tmp/afw.ports
+
+  echo
+  read -r -p "$(printf "${X}Enable RED blocklist from ./blocklist.conf? [y/N] (default: %s)${Y}: " "${BLOCKLIST}")" _b || true
+  if [[ -n "${_b:-}" ]]; then BLOCKLIST="${_b}"; fi
+  echo "${BLOCKLIST}" > /tmp/afw.blocklist
+
+  echo
+  read -r -p "$(printf "${X}Also build IPv6 sets/rules? [y/N] (default: %s)${Y}: " "${IPV6_OPT}")" _6 || true
+  if [[ -n "${_6:-}" ]]; then IPV6_OPT="${_6}"; fi
+  echo "${IPV6_OPT}" > /tmp/afw.ipv6
+}
+
+# =========================
+# Fetch data
+# =========================
+TMPDIR="$(mktemp -d -t afw-XXXXXXXX)"
+cleanup(){ rm -rf "${TMPDIR}"; }
+trap cleanup EXIT
+
+fetch_country_zones(){
+  disp_stat "Fetching IPv4 country zones from ipdeny.com...\n"
+  : > "${TMPDIR}/allowlist.v4"
+  IFS=',' read -r -a ccs <<<"$(cat /tmp/afw.countries)"
+  for c in "${ccs[@]}"; do
+    c="${c,,}"
+    [[ -z "$c" ]] && continue
+    url="${IPDENY_V4_BASE}/${c}.zone"
+    if curl -fsSL --connect-timeout 10 --max-time 20 "$url" -o "${TMPDIR}/${c}.v4.zone"; then
+      grep -E '^[0-9]+\.[0-9]+' "${TMPDIR}/${c}.v4.zone" >> "${TMPDIR}/allowlist.v4" || true
+      printf "  - %s (IPv4)\n" "$c"
+    else
+      disp_errr "Failed to fetch ${url}\n"
+    fi
+  done
+  disp_good "IPv4 fetching completed. $(wc -l < "${TMPDIR}/allowlist.v4") networks.\n"
+
+  if [[ "$(cat /tmp/afw.ipv6)" == "y" ]]; then
+    disp_stat "Fetching IPv6 country zones from ipdeny.com...\n"
+    : > "${TMPDIR}/allowlist.v6"
+    for c in "${ccs[@]}"; do
+      c="${c,,}"
+      [[ -z "$c" ]] && continue
+      url="${IPDENY_V6_BASE}/${c}.zone"
+      if curl -fsSL --connect-timeout 10 --max-time 20 "$url" -o "${TMPDIR}/${c}.v6.zone"; then
+        grep -E '^[0-9a-fA-F:]' "${TMPDIR}/${c}.v6.zone" >> "${TMPDIR}/allowlist.v6" || true
+        printf "  - %s (IPv6)\n" "$c"
       else
-                echo "$ans_custom" > /tmp/arpafw.set2
-        fi
-else
-	error_exit "$LINENO: An error has occurred or null."
-	echo "null" > /tmp/arpafw.set1
-fi
+        disp_errr "Failed to fetch ${url}\n"
+      fi
+    done
+    disp_good "IPv6 fetching completed. $(wc -l < "${TMPDIR}/allowlist.v6") networks.\n"
+  fi
 }
 
-function portload(){
-	printf "\nAFW will only allow access to your internal network. Access to your public IP must be defined by each port.\n\n";
-	disp_noti "Enter the ports that you need to allow access. E.g: 80,443,8080: ";read ans_ports;
-        if [[ -z $ans_ports ]];then
-                echo "null" > /tmp/arpafw.set3
-                error_exit "$LINENO: An error has occurred or null."
-      else
-                echo "$ans_ports" > /tmp/arpafw.set3
-        fi
+make_blue_list(){
+  : > "${TMPDIR}/blue.v4"
+  ip -4 addr show scope global | awk '/inet /{print $2}' >> "${TMPDIR}/blue.v4" || true
+  : > "${TMPDIR}/blue.v6"
+  ip -6 addr show scope global | awk '/inet6 /{print $2}' >> "${TMPDIR}/blue.v6" || true
 }
 
-function blocklist(){
-	printf "\nAFW can automatically blocklist IP addresses or networks that are known to be malicious.\n\n";
-        disp_noti "Enable blocklist option [Y/n]: ";read ans_blocklist;
-        if [[ "$ans_blocklist" == "y" || "$ans_blocklist" == "Y" ]]; then
-                echo "$ans_blocklist" > /tmp/arpafw.set4
-      elif [[ "$ans_blocklist" == "n" || "$ans_blocklist" == "N" ]]; then
-		echo "$ans_blocklist" > /tmp/arpafw.set4
-      else
-		echo "null" > /tmp/arpafw.set4
-		error_exit "$LINENO: An error has occurred or null."
-        fi
+# =========================
+# iptables/ipset build
+# =========================
+reset_tables(){
+  iptables -F || true
+  iptables -X || true
+  if command -v ip6tables >/dev/null 2>&1; then
+    ip6tables -F || true
+    ip6tables -X || true
+  fi
+  for set in blue green red blue6 green6 red6; do
+    ipset destroy "$set" 2>/dev/null || true
+  done
 }
 
-function installfwd(){
-disp_noti "Installing firewall...\n";
-mkdir -p /etc/afw
-cp -f /tmp/arpafw.os /etc/afw/.
-cp -f /tmp/arpafw.rules /etc/afw/.
-cp -f `pwd`/blocklist.conf /etc/afw/.
+create_ipsets(){
+  disp_stat "Creating ipsets...\n"
+  ipset create blue  hash:net family inet  hashsize "${HASHSIZE}" maxelem "${MAXELEM}" -exist
+  ipset flush blue
+  if [[ -s "${TMPDIR}/blue.v4" ]]; then
+    while read -r net; do [[ -n "$net" ]] && ipset add blue "$net" -exist; done < "${TMPDIR}/blue.v4"
+  fi
 
-for i in red green blue
-{
-	ipset save $i > /etc/afw/$i.zone
+  ipset create green hash:net family inet  hashsize "${HASHSIZE}" maxelem "${MAXELEM}" -exist
+  ipset flush green
+  if [[ -s "${TMPDIR}/allowlist.v4" ]]; then
+    # Faster load: restore format
+    { echo "create green hash:net family inet hashsize ${HASHSIZE} maxelem ${MAXELEM} -exist"
+      awk '{print "add green " $0}' "${TMPDIR}/allowlist.v4";
+    } | ipset restore -exist
+  fi
+
+  ipset create red   hash:net family inet  hashsize "${HASHSIZE}" maxelem "${MAXELEM}" -exist
+  ipset flush red
+  if [[ "$(cat /tmp/afw.blocklist)" == "y" ]]; then
+    if [[ -f ./blocklist.conf ]]; then
+      disp_stat "Building RED blocklist (IPv4)...\n"
+      : > "${TMPDIR}/blk.v4"
+      while read -r url; do
+        [[ -z "$url" || "$url" =~ ^# ]] && continue
+        curl -fsSL --connect-timeout 10 --max-time 25 "$url" >> "${TMPDIR}/blk.raw" || true
+      done < ./blocklist.conf
+      grep -oE '((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|/)){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(/[0-9]{1,2})?' "${TMPDIR}/blk.raw" \
+        | sed 's/[;,].*$//' | sed '/^$/d' | sort -u > "${TMPDIR}/blk.v4" || true
+      if [[ -s "${TMPDIR}/blk.v4" ]]; then
+        { echo "create red hash:net family inet hashsize ${HASHSIZE} maxelem ${MAXELEM} -exist"
+          awk '{print "add red " $0}' "${TMPDIR}/blk.v4";
+        } | ipset restore -exist
+      fi
+      disp_good "RED blocklist loaded: $(wc -l < "${TMPDIR}/blk.v4") entries.\n"
+    else
+      disp_noti "blocklist.conf not found; skipping RED load.\n"
+    fi
+  fi
+
+  if [[ "$(cat /tmp/afw.ipv6)" == "y" ]]; then
+    ipset create blue6  hash:net family inet6 hashsize "${HASHSIZE}" maxelem "${MAXELEM}" -exist
+    ipset flush blue6
+    if [[ -s "${TMPDIR}/blue.v6" ]]; then
+      while read -r net; do [[ -n "$net" ]] && ipset add blue6 "$net" -exist; done < "${TMPDIR}/blue.v6"
+    fi
+
+    ipset create green6 hash:net family inet6 hashsize "${HASHSIZE}" maxelem "${MAXELEM}" -exist
+    ipset flush green6
+    if [[ -s "${TMPDIR}/allowlist.v6" ]]; then
+      { echo "create green6 hash:net family inet6 hashsize ${HASHSIZE} maxelem ${MAXELEM} -exist"
+        awk '{print "add green6 " $0}' "${TMPDIR}/allowlist.v6";
+      } | ipset restore -exist
+    fi
+
+    ipset create red6   hash:net family inet6 hashsize "${HASHSIZE}" maxelem "${MAXELEM}" -exist
+    ipset flush red6
+    # (Optional) v6 blocklist sources could be added similarly if you maintain them
+  fi
+
+  disp_good "ipsets created.\n"
 }
 
-if grep -Fxq "Ubuntu" /tmp/arpafw.os; then
-	cat /tmp/arpafw.rules > /etc/sysconfig/iptables
-	iptables-restore < /etc/sysconfig/iptables
-	iptables-save > /etc/sysconfig/iptables
+build_rules_v4(){
+  local ports; ports="$(cat /tmp/afw.ports)"
 
-	if [[ -f /usr/share/man/man8/afw.8.gz ]]; then
-		disp_good "Man page found.\n";
-	else
-		disp_good "Installing man pages...\n";
-		cp -fp `pwd`/afw.1 /usr/share/man/man8/afw.8
-		gzip /usr/share/man/man8/afw.8
-	fi
-else
-	cat /tmp/arpafw.rules > /etc/default/iptables
-	iptables-restore < /etc/default/iptables
-	mkdir -p /etc/iptables;touch /etc/iptables/rules.v4
-	iptables-save > /etc/iptables/rules.v4
+  disp_stat "Building IPv4 iptables rules...\n"
+  iptables -P INPUT ACCEPT
+  iptables -P FORWARD DROP
+  iptables -P OUTPUT ACCEPT
 
-	if [[ -f /usr/share/man/man8/afw.8.gz ]]; then
-		disp_good "Man page found.\n";
-	else
-		disp_good "Installing man pages...\n";
-		cp -fp `pwd`/afw.1 /usr/share/man/man8/afw.8
-		gzip /usr/share/man/man8/afw.8
-	fi
-fi
-	cp -fp `pwd`/afw /usr/local/bin/.
-	chmod +x /usr/local/bin/afw
-	rm -f /tmp/arpafw.*;rm -f /tmp/*.zone
-	disp_good "AFW completed.\n\n";
+  iptables -F AFW 2>/dev/null || true
+  iptables -X AFW 2>/dev/null || true
+  iptables -N AFW
+
+  iptables -C INPUT -j AFW 2>/dev/null || iptables -I INPUT -j AFW
+
+  # Loopback & established
+  iptables -A AFW -i lo -j ACCEPT
+  iptables -A AFW -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+  # ICMP echo req/reply
+  iptables -A AFW -p icmp --icmp-type echo-reply -j ACCEPT
+  iptables -A AFW -p icmp --icmp-type echo-request -j ACCEPT
+
+  # BLUE (local interfaces)
+  iptables -A AFW -m set --match-set blue src -j ACCEPT
+
+  # GREEN limited to specified TCP ports (defaults to 22 only if no override)
+  iptables -A AFW -p tcp -m set --match-set green src -m multiport --dports "${ports}" -j ACCEPT
+
+  # RED blocklist hard drop
+  iptables -A AFW -m set --match-set red src -j DROP
+
+  # Log & reject other inbound TCP SYN to closed ports
+  iptables -A AFW -m limit --limit 5/min -j LOG --log-prefix "afw denied: " --log-level 7
+  iptables -A AFW -p tcp -m tcp --tcp-flags SYN,RST,ACK SYN -j REJECT --reject-with icmp-port-unreachable
+
+  # Default inbound policy: DROP (everything not accepted above)
+  iptables -P INPUT DROP
+
+  disp_good "IPv4 rules loaded.\n"
+
+  # Persist
+  mkdir -p /etc/iptables
+  iptables-save > /etc/iptables/rules.v4
+  systemctl restart netfilter-persistent >/dev/null 2>&1 || true
+  disp_good "IPv4 rules saved to /etc/iptables/rules.v4 and persisted.\n"
 }
 
-function configload(){
-        printf "\nNow we are ready to finalize the configuration and installation. Don't worry if you need\n";
-	printf "to make any changes. You will be given the option to customize the configuration later.\n";
-        printf "Remember that all existing rules or chains will be flushed when you choose \"y\".\n\n";
-	disp_noti "Do you want to continue the [Y/n]: ";read ans_config;
-        if [[ "$ans_config" == "y" || "$ans_config" == "Y" ]]; then
-                echo "$ans_config" > /tmp/arpafw.set5
+build_rules_v6(){
+  if [[ "$(cat /tmp/afw.ipv6)" != "y" ]]; then return 0; fi
+  if ! command -v ip6tables >/dev/null 2>&1; then
+    disp_noti "ip6tables not available; skipping IPv6 rules.\n"
+    return 0
+  fi
 
-		#CONFIGURE AND INSTALL. BUILD THE CONFIG
-		cat /tmp/arpafw.set1 /tmp/arpafw.set2 /tmp/arpafw.set3 /tmp/arpafw.set4 /tmp/arpafw.set5 > /tmp/arpafw.set
-		# START THE BUILD
-		echo "ZONE=\"$ZONE\"" > /tmp/arpafw.conf
-		echo "HASHSIZE=\"$HASHSIZE\"" >> /tmp/arpafw.conf
-		echo "MAXELEM=\"$MAXELEM\"" >> /tmp/arpafw.conf
+  local ports; ports="$(cat /tmp/afw.ports)"
 
-			# FETCH THE ZONES
-			if [[ -f "/tmp/*.zone" ]]; then
-				rm -f /tmp/*.zone
-			fi
-			for c in `sed -n '2p' /tmp/arpafw.set | sed 's/,/ /g'`
-			{
-				disp_noti "Fetching $c...\n"
-				curl -q "$ZONE/$c.zone" --connect-timeout 10 --max-time 10 -o /tmp/$c.zone > /dev/null 2>&1
-		 	}
-				disp_good "Fetching completed.\n";
-			
-			# MERGE AND CLEANUP
-                        if [[ -f "/tmp/arpafw.net" ]]; then
-                                rm /tmp/arpafw.net
-                        else
-                                touch /tmp/arpafw.net
-                        fi
+  disp_stat "Building IPv6 iptables rules...\n"
+  ip6tables -P INPUT ACCEPT
+  ip6tables -P FORWARD DROP
+  ip6tables -P OUTPUT ACCEPT
 
-			for d in `sed -n '2p' /tmp/arpafw.set | sed 's/,/ /g'`
-			{
-				cat /tmp/$d.zone | grep -v "#" | grep -v "<" >> /tmp/arpafw.net
-			}
-				disp_good "`wc /tmp/arpafw.net | sed 's/^.//'`\n";	
+  ip6tables -F AFW6 2>/dev/null || true
+  ip6tables -X AFW6 2>/dev/null || true
+  ip6tables -N AFW6
 
-			# CREATE FW TEMPLATE
-			disp_noti "Creating firewall template...\n";
-			echo "*filter" > /tmp/arpafw.rules
-			echo ":INPUT ACCEPT [0:0]" >> /tmp/arpafw.rules
-			echo ":FORWARD ACCEPT [0:0]" >> /tmp/arpafw.rules
-			echo ":OUTPUT ACCEPT [0:0]" >> /tmp/arpafw.rules
-			echo ":AFW -" >> /tmp/arpafw.rules
-			
-			echo "# All traffic to AFW chain" >> /tmp/arpafw.rules
-			echo "-A INPUT -j AFW" >> /tmp/arpafw.rules
-			echo "# Accecpt local" >> /tmp/arpafw.rules
-			echo "-A AFW -i lo -j ACCEPT" >> /tmp/arpafw.rules
-			echo "# Accept and established" >> /tmp/arpafw.rules
-			echo "-A AFW -m state --state RELATED,ESTABLISHED -j ACCEPT" >> /tmp/arpafw.rules
-			
-			echo "# ICMP echo request/reply permitted" >> /tmp/arpafw.rules
-			echo "-A AFW -p icmp -m icmp --icmp-type 0 -j ACCEPT" >> /tmp/arpafw.rules
-			echo "-A AFW -p icmp -m icmp --icmp-type 8 -j ACCEPT" >> /tmp/arpafw.rules
-			
-			echo "# Allow specific IP to access SSH" >> /tmp/arpafw.rules
-			echo "-A AFW -m set --match-set blue src -p tcp -j ACCEPT" >> /tmp/arpafw.rules
-			echo "# Whitelist these ipset's and permit them to connect on port" >> /tmp/arpafw.rules
-			echo "-A AFW -m set --match-set green src -p tcp -m multiport --dports `sed -n '3p' /tmp/arpafw.set` -j ACCEPT" >> /tmp/arpafw.rules
-			
-			echo "# log iptables denied calls" >> /tmp/arpafw.rules
-			echo "-A AFW -m limit --limit 5/min -j LOG --log-prefix \"iptables denied: \" --log-level 7" >> /tmp/arpafw.rules
-			echo "# Rejects all remaining connections with port-unreachable errors." >> /tmp/arpafw.rules
-			echo "-A AFW -p tcp -m tcp --tcp-flags SYN,RST,ACK SYN -j REJECT --reject-with icmp-port-unreachable" >> /tmp/arpafw.rules
-			echo "-A AFW -m set --match-set red src -j DROP" >> /tmp/arpafw.rules
-			echo "#Reject all udp traffic" >> /tmp/arpafw.rules
-			echo "-A AFW -p udp -j REJECT --reject-with icmp-port-unreachable" >> /tmp/arpafw.rules
-			echo "COMMIT" >> /tmp/arpafw.rules
-		
-			# GENERATE blocklIST
-			BLCK="`sed -n '4p' /tmp/arpafw.set`"
-			URLP=`pwd`/blocklist.conf
-			if [[ "$BLCK" == "y" || "$BLCK" == "Y" ]]; then
-			disp_noti "Generating blocklist ...\n";
-			for i in `cat $URLP | grep -v "#"`
-			{
-				curl -k "$i" --connect-timeout 10 --max-time 10 | tee -a /tmp/arpafw.zone > /dev/null 2>&1
-			}
-				cat /tmp/arpafw.zone | grep -v "#" | grep -v "<" | grep -v ":" | cut -d"," -f1 | cut -d";" -f1 | sed '/^$/d' > /tmp/arpafw.blk
-				cp -f /tmp/arpafw.blk /tmp/arpafw.blk2
-				grep -oE '((1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])\.){3}(1?[0-9][0-9]?|2[0-4][0-9]|25[0-5])' /tmp/arpafw.blk2 > /tmp/arpafw.blk
-				disp_good "blocklist completed.\n";
-				disp_good "`wc /tmp/arpafw.blk | sed 's/^.//'`\n";
-			fi
+  ip6tables -C INPUT -j AFW6 2>/dev/null || ip6tables -I INPUT -j AFW6
 
-			# GENERATE ZONES
-			iptables -F
-			iptables -X
-			ipset -X
-			disp_noti "Configuring BLUE zone...\n";
-			ifconfig -a | grep "inet addr" | cut -d":" -f2 | cut -d" " -f1 > /tmp/arpafw.blue
-			ipset create "blue" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"			
-			ipset flush "blue"
-			for IP in $( cat "/tmp/arpafw.blue" )
-                        {
-                                ipset add blue $IP -exist
-                        }
-                        disp_good "Blue zone completed.\n";
+  ip6tables -A AFW6 -i lo -j ACCEPT
+  ip6tables -A AFW6 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  ip6tables -A AFW6 -p ipv6-icmp -j ACCEPT
 
-			disp_noti "Configuring GREEN zone...\n";
-			ipset create "green" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"
-			ipset flush "green"
-			for IP in $( cat "/tmp/arpafw.net" )
-			{
-				ipset add green $IP -exist
-			}
-			disp_good "Green zone completed.\n";
+  ip6tables -A AFW6 -m set --match-set blue6 src -j ACCEPT
+  ip6tables -A AFW6 -p tcp -m set --match-set green6 src -m multiport --dports "${ports}" -j ACCEPT
 
-			# GENERATE SET FOR RED
-			if [[ "$BLCK" == "y" || "$BLCK" == "Y" ]]; then
-                        	disp_noti "Configuring RED zone...\n";
-                        	ipset create "red" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"
-                        	ipset flush "red"
-                        	for IP in $( cat "/tmp/arpafw.blk" )
-                        	{
-                                	ipset add red $IP -exist
-                        	}
-			else
-				ipset create "red" -exist hash:net family inet hashsize "$HASHSIZE" maxelem "$MAXELEM"
-                        	ipset flush "red"
-			fi
-			disp_good "Red zone completed.\n";
-			
-      elif [[ "$ans_config" == "n" || "$ans_config" == "N" ]]; then
-                echo "$ans_config" > /tmp/arpafw.set5
-		exit 0
-      else
-                echo "null" > /tmp/arpafw.set5
-                error_exit "$LINENO: An error has occurred or null."
-        fi
+  if ipset list red6 >/dev/null 2>&1; then
+    ip6tables -A AFW6 -m set --match-set red6 src -j DROP
+  fi
+
+  ip6tables -A AFW6 -m limit --limit 5/min -j LOG --log-prefix "afw6 denied: " --log-level 7
+  ip6tables -A AFW6 -p tcp -m tcp --tcp-flags SYN,RST,ACK SYN -j REJECT
+
+  ip6tables -P INPUT DROP
+
+  disp_good "IPv6 rules loaded.\n"
+
+  mkdir -p /etc/iptables
+  ip6tables-save > /etc/iptables/rules.v6
+  systemctl restart netfilter-persistent >/dev/null 2>&1 || true
+  disp_good "IPv6 rules saved to /etc/iptables/rules.v6 and persisted.\n"
 }
 
-# EXECUTE
-checkbinaries
-initload
-portload
-blocklist
-configload
-installfwd
+save_ipsets(){
+  mkdir -p /etc/afw
+  ipset save blue  > /etc/afw/blue.zone  || true
+  ipset save green > /etc/afw/green.zone || true
+  ipset save red   > /etc/afw/red.zone   || true
+  if [[ "$(cat /tmp/afw.ipv6)" == "y" ]]; then
+    ipset save blue6  > /etc/afw/blue6.zone  || true
+    ipset save green6 > /etc/afw/green6.zone || true
+    ipset save red6   > /etc/afw/red6.zone   || true
+  fi
+}
 
-exit 0
+# =========================
+# Main
+# =========================
+main(){
+  need_root
+  detect_os
+  install_pkgs
+
+  # Seed temp inputs for non-interactive path (interactive will overwrite)
+  echo "${COUNTRIES}" > /tmp/afw.countries
+  echo "${PORTS}"     > /tmp/afw.ports
+  echo "${BLOCKLIST}" > /tmp/afw.blocklist
+  echo "${IPV6_OPT}"  > /tmp/afw.ipv6
+
+  maybe_prompt
+  fetch_country_zones
+  make_blue_list
+  reset_tables
+  create_ipsets
+  build_rules_v4
+  build_rules_v6
+  save_ipsets
+
+  disp_good "\nAFW completed. Default inbound allowed: TCP ${PORTS} from allowed countries (defaults to 22 only).\n"
+  disp_noti  "Edit ./blocklist.conf to manage RED sources; re-run the script to apply.\n"
+}
+
+main "$@"
+
+
